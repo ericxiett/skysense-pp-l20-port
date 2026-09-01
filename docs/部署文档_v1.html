@@ -79,7 +79,7 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
     <a class="toc-l2" href="#一-部署架构与拓扑">一、部署架构与拓扑</a>
 <a class="toc-l2" href="#二-部署介质清单">二、部署介质清单</a>
 <a class="toc-l2" href="#三-环境准备">三、环境准备</a>
-<a class="toc-l3" href="#31-基础镜像">3.1 基础镜像</a>
+<a class="toc-l3" href="#31-基础镜像-已推送至本环境-Harbor">3.1 基础镜像（已推送至本环境 Harbor）</a>
 <a class="toc-l3" href="#32-依赖安装-容器内-由-start1shotsh-自动执行">3.2 依赖安装（容器内，由 start_1shot.sh 自动执行）</a>
 <a class="toc-l2" href="#四-代码与数据放置">四、代码与数据放置</a>
 <a class="toc-l2" href="#五-1-shot-推理运行">五、1-shot 推理运行</a>
@@ -163,7 +163,7 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 </tr>
 <tr>
 <td><code>scripts/Dockerfile</code></td>
-<td>基础镜像定义（pytorch:2.1.2-cuda12.1-cudnn8-devel）</td>
+<td>NFS 侧 serve 镜像构建脚本（torch1.13 旧链路），L20 部署不依赖，仅供参考</td>
 </tr>
 <tr>
 <td><code>docs/部署文档_v1.md</code> / <code>.html</code></td>
@@ -176,10 +176,38 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 </tbody>
 </table>
 <h2 id="三-环境准备">三、环境准备</h2>
-<h3 id="31-基础镜像">3.1 基础镜像</h3>
-<pre><code class="language-bash">docker pull pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel
+<h3 id="31-基础镜像-已推送至本环境-Harbor">3.1 基础镜像（已推送至本环境 Harbor）</h3>
+<p>L20 部署使用的基础镜像为 <code>pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel</code>，<strong>已推送至本环境 Harbor 仓库</strong>（insecure-registry），Pod 直接引用 Harbor 地址，无需从 docker.io 拉取：</p>
+<pre><code class="language-bash"># &lt;Harbor 地址&gt;:5000 为部署现场实际 Harbor（域名与 IP 两种写法指向同一仓库）
+docker pull &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
 </code></pre>
-<p>镜像预装 torch==2.1.2+cu121、torchvision==0.16.2，无需重装 CUDA 工具链。</p>
+<p>镜像信息（已验证就位）：</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Harbor 仓库</td>
+<td><code>&lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code></td>
+</tr>
+<tr>
+<td>Manifest digest</td>
+<td><code>sha256:a5de097b482f5927baf2322f4419f11044bfe4f08c7b7593dbaff8e41d03a204</code></td>
+</tr>
+<tr>
+<td>验证方式</td>
+<td>registry v2 API tags 确认 + 14+ 个 skysense Pod 使用该镜像全部运行成功</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>说明：Harbor 实际地址属内部环境信息，按安全规范以占位符表示，部署时替换为现场实际地址（含 containerd insecure-registry 配置项，按现场运维提供）。</p>
+</blockquote>
+<p>镜像预装 torch==2.1.2+cu121、torchvision==0.16.2，无需重装 CUDA 工具链。K8s 节点（containerd）已配置该仓库为 insecure-registry，Pod 直接写 <code>image: &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code> 即可调度拉取。</p>
 <h3 id="32-依赖安装-容器内-由-start1shotsh-自动执行">3.2 依赖安装（容器内，由 start_1shot.sh 自动执行）</h3>
 <p>关键点：</p>
 <ul>

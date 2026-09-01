@@ -38,7 +38,7 @@ skysense-pp-l20-port/
 
 1. 从上游克隆完整项目：`git clone https://github.com/kang-wu/SkySensePlusPlus.git`
 2. 应用适配补丁：`git apply patches/skysense_pp_l20_port.patch`
-3. 按 `docs/部署文档_v1.md` 配置环境（基础镜像 pytorch:2.1.2-cuda12.1-cudnn8-devel，依赖见 `scripts/requirements_l20.txt`）
+3. 按 `docs/部署文档_v1.md` 配置环境（基础镜像已推送至本环境 Harbor `<Harbor 地址>:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel`，依赖见 `scripts/requirements_l20.txt`）
 4. 执行 1-shot 推理：`bash scripts/start_1shot.sh`
 
 详细部署步骤、依赖安装、数据放置、已知问题见部署文档。

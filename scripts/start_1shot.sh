@@ -2,7 +2,8 @@
 # ============================================================
 # start_1shot.sh —— SkySense++ flood3i 1-shot 容器内"安装+运行"脚本
 # 挂载后容器内路径：/workspace/start_1shot.sh（hostPath /root/SkySensePlusPlus）
-# 基础镜像：pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel（已预装 torch2.1.2+cu121）
+# 基础镜像：<Harbor 地址>:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
+#           （已推送至本环境 Harbor，docker.io 源不可直连；已预装 torch2.1.2+cu121）
 # 2026-08-31 实测修正（相对手册原草案）：
 #   [1] antmmf 无 setup.py，pip install -e 必失败；run_1shot.sh 内建
 #       `cd antmmf && export PYTHONPATH=$(pwd)`，靠 PYTHONPATH 引用，不 pip 安装
