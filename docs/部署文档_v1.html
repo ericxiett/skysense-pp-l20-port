@@ -99,11 +99,14 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 <hr>
 <h2 id="一-部署架构与拓扑">一、部署架构与拓扑</h2>
 <p>本部署面向浪潮云 GPU 环境（K8s 集群 + 跳板机中转），链路如下：</p>
-<pre><code>跳板机 JUMP  ──SSH 中转──▶  gpu-0002 (100.69.0.3:6733, NVIDIA L20)
-117.73.22.203:6233                  │
+<pre><code>跳板机 JUMP  ──SSH 中转──▶  gpu-0002（内网 IP，NVIDIA L20）
+&lt;跳板机 IP&gt;:&lt;SSH 端口&gt;              │
                                     ├─ hostPath: /root/SkySensePlusPlus（代码+数据挂载点）
                                     └─ K8s Pod（nodeSelector=gpu-0002，申请 1 张 L20）
 </code></pre>
+<blockquote>
+<p>说明：上图中的跳板机 IP、SSH 端口、gpu-0002 内网 IP 属内部环境信息，按安全规范以占位符表示，部署时替换为实际值即可。</p>
+</blockquote>
 <p>部署介质经跳板机落地后，通过 K8s Pod 调度到 gpu-0002 执行容器内安装与推理。</p>
 <h2 id="二-部署介质清单">二、部署介质清单</h2>
 <table>
