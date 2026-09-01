@@ -79,7 +79,7 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
     <a class="toc-l2" href="#一-部署架构与拓扑">一、部署架构与拓扑</a>
 <a class="toc-l2" href="#二-部署介质清单">二、部署介质清单</a>
 <a class="toc-l2" href="#三-环境准备">三、环境准备</a>
-<a class="toc-l3" href="#31-基础镜像-已推送至本环境-Harbor">3.1 基础镜像（已推送至本环境 Harbor）</a>
+<a class="toc-l3" href="#31-基础镜像-已推送至本环境-镜像仓库">3.1 基础镜像（已推送至私有镜像仓库）</a>
 <a class="toc-l3" href="#32-依赖安装-容器内-由-start1shotsh-自动执行">3.2 依赖安装（容器内，由 start_1shot.sh 自动执行）</a>
 <a class="toc-l2" href="#四-代码与数据放置">四、代码与数据放置</a>
 <a class="toc-l2" href="#五-1-shot-推理运行">五、1-shot 推理运行</a>
@@ -98,16 +98,16 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 </blockquote>
 <hr>
 <h2 id="一-部署架构与拓扑">一、部署架构与拓扑</h2>
-<p>本部署面向浪潮云 GPU 环境（K8s 集群 + 跳板机中转），链路如下：</p>
-<pre><code>跳板机 JUMP  ──SSH 中转──▶  gpu-0002（内网 IP，NVIDIA L20）
-&lt;跳板机 IP&gt;:&lt;SSH 端口&gt;              │
-                                    ├─ hostPath: /root/SkySensePlusPlus（代码+数据挂载点）
-                                    └─ K8s Pod（nodeSelector=gpu-0002，申请 1 张 L20）
+<p>本部署面向私有 GPU 环境（K8s 集群 + 中转节点中转），链路如下：</p>
+<pre><code>中转节点  ──SSH 中转──▶  L20 节点（内网 IP，NVIDIA L20）
+&lt;中转节点 IP&gt;:&lt;SSH 端口&gt;              │
+                                    ├─ hostPath: ~/SkySensePlusPlus（代码+数据挂载点）
+                                    └─ K8s Pod（nodeSelector=&lt;L20 节点&gt;，申请 1 张 L20）
 </code></pre>
 <blockquote>
-<p>说明：上图中的跳板机 IP、SSH 端口、gpu-0002 内网 IP 属内部环境信息，按安全规范以占位符表示，部署时替换为实际值即可。</p>
+<p>说明：上图中的中转节点 IP、SSH 端口、L20 节点内网 IP 属内部环境信息，按安全规范以占位符表示，部署时替换为实际值即可。</p>
 </blockquote>
-<p>部署介质经跳板机落地后，通过 K8s Pod 调度到 gpu-0002 执行容器内安装与推理。</p>
+<p>部署介质经中转节点落地后，通过 K8s Pod 调度到 L20 节点 执行容器内安装与推理。</p>
 <h2 id="二-部署介质清单">二、部署介质清单</h2>
 <table>
 <thead>
@@ -163,7 +163,7 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 </tr>
 <tr>
 <td><code>scripts/Dockerfile</code></td>
-<td>NFS 侧 serve 镜像构建脚本（torch1.13 旧链路），L20 部署不依赖，仅供参考</td>
+<td>基线侧 serve 镜像构建脚本（torch1.13 旧链路），L20 部署不依赖，仅供参考</td>
 </tr>
 <tr>
 <td><code>docs/部署文档_v1.md</code> / <code>.html</code></td>
@@ -176,10 +176,10 @@ pre code{background:transparent;color:inherit;padding:0;font-size:13px}
 </tbody>
 </table>
 <h2 id="三-环境准备">三、环境准备</h2>
-<h3 id="31-基础镜像-已推送至本环境-Harbor">3.1 基础镜像（已推送至本环境 Harbor）</h3>
-<p>L20 部署使用的基础镜像为 <code>pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel</code>，<strong>已推送至本环境 Harbor 仓库</strong>（insecure-registry），Pod 直接引用 Harbor 地址，无需从 docker.io 拉取：</p>
-<pre><code class="language-bash"># &lt;Harbor 地址&gt;:5000 为部署现场实际 Harbor（域名与 IP 两种写法指向同一仓库）
-docker pull &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
+<h3 id="31-基础镜像-已推送至本环境-镜像仓库">3.1 基础镜像（已推送至私有镜像仓库）</h3>
+<p>L20 部署使用的基础镜像为 <code>pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel</code>，<strong>已推送至私有镜像仓库 仓库</strong>（insecure-registry），Pod 直接引用 镜像仓库地址，无需从 docker.io 拉取：</p>
+<pre><code class="language-bash"># &lt;镜像仓库地址&gt;:5000 为部署现场实际 镜像仓库（域名与 IP 两种写法指向同一仓库）
+docker pull &lt;镜像仓库地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
 </code></pre>
 <p>镜像信息（已验证就位）：</p>
 <table>
@@ -191,8 +191,8 @@ docker pull &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-dev
 </thead>
 <tbody>
 <tr>
-<td>Harbor 仓库</td>
-<td><code>&lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code></td>
+<td>镜像仓库</td>
+<td><code>&lt;镜像仓库地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code></td>
 </tr>
 <tr>
 <td>Manifest digest</td>
@@ -200,33 +200,33 @@ docker pull &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-dev
 </tr>
 <tr>
 <td>验证方式</td>
-<td>registry v2 API tags 确认 + 14+ 个 skysense Pod 使用该镜像全部运行成功</td>
+<td>registry v2 API tags 确认 + 14+ 个 推理 Pod 使用该镜像全部运行成功</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p>说明：Harbor 实际地址属内部环境信息，按安全规范以占位符表示，部署时替换为现场实际地址（含 containerd insecure-registry 配置项，按现场运维提供）。</p>
+<p>说明：镜像仓库 实际地址属内部环境信息，按安全规范以占位符表示，部署时替换为现场实际地址（含 containerd insecure-registry 配置项，按现场运维提供）。</p>
 </blockquote>
-<p>镜像预装 torch==2.1.2+cu121、torchvision==0.16.2，无需重装 CUDA 工具链。K8s 节点（containerd）已配置该仓库为 insecure-registry，Pod 直接写 <code>image: &lt;Harbor 地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code> 即可调度拉取。</p>
+<p>镜像预装 torch==2.1.2+cu121、torchvision==0.16.2，无需重装 CUDA 工具链。K8s 节点（containerd）已配置该仓库为 insecure-registry，Pod 直接写 <code>image: &lt;镜像仓库地址&gt;:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel</code> 即可调度拉取。</p>
 <h3 id="32-依赖安装-容器内-由-start1shotsh-自动执行">3.2 依赖安装（容器内，由 start_1shot.sh 自动执行）</h3>
 <p>关键点：</p>
 <ul>
 <li><strong>不要使用上游 requirements.txt</strong>（pin 了 torch==1.13 + cu117，无法在 L20 运行）；</li>
 <li>使用 <code>scripts/requirements_l20.txt</code>：mmcv==2.1.0 / mmsegmentation==1.2.2 / mmengine，mmcv 走 openmmlab cu121-torch2.1 预编译 wheel（--find-links），避免 nvcc 源码编译；</li>
-<li>pip 源使用阿里云（<code>https://mirrors.aliyun.com/pypi/simple/</code>），实测 gpu-0002 上清华源超时、阿里云 4.5MB/s；</li>
+<li>pip 源使用阿里云（<code>https://mirrors.aliyun.com/pypi/simple/</code>），实测 L20 节点 上清华源超时、阿里云 4.5MB/s；</li>
 <li>antmmf 无 setup.py，不执行 pip install -e，靠 <code>PYTHONPATH</code> 引用（run_1shot.sh 内建）；</li>
 <li>opencv 切换为 opencv-python-headless；</li>
 <li>flash-attn 不预装（标准 attention 可绕过，省 nvcc 编译）。</li>
 </ul>
 <h2 id="四-代码与数据放置">四、代码与数据放置</h2>
-<pre><code class="language-bash"># gpu-0002 宿主机挂载点（K8s hostPath）
-mkdir -p /root/SkySensePlusPlus
+<pre><code class="language-bash"># L20 节点 宿主机挂载点（K8s hostPath）
+mkdir -p ~/SkySensePlusPlus
 
 # 从上游克隆完整项目
-git clone https://github.com/kang-wu/SkySensePlusPlus.git /root/SkySensePlusPlus
+git clone https://github.com/kang-wu/SkySensePlusPlus.git ~/SkySensePlusPlus
 
 # 应用适配补丁（介质内）
-cd /root/SkySensePlusPlus
+cd ~/SkySensePlusPlus
 git apply /path/to/patches/skysense_pp_l20_port.patch
 </code></pre>
 <p>数据放置（与上游 README 一致，路径以实际为准）：</p>
@@ -343,11 +343,11 @@ bash /workspace/start_1shot.sh
 </table>
 <h2 id="八-回滚">八、回滚</h2>
 <pre><code class="language-bash"># 修复前版本备份（远端已在修改时自动生成）
-cp /root/SkySensePlusPlus/lib/models/backbones/swin_v2.py.bak-noresidual \
-   /root/SkySensePlusPlus/lib/models/backbones/swin_v2.py
+cp ~/SkySensePlusPlus/lib/models/backbones/swin_v2.py.bak-noresidual \
+   ~/SkySensePlusPlus/lib/models/backbones/swin_v2.py
 
 # 或反向应用补丁
-cd /root/SkySensePlusPlus
+cd ~/SkySensePlusPlus
 git apply -R /path/to/patches/skysense_pp_l20_port.patch
 </code></pre>
 <h2 id="九-已知问题">九、已知问题</h2>

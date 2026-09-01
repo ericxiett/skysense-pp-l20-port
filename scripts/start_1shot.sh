@@ -1,18 +1,18 @@
 #!/bin/bash
 # ============================================================
 # start_1shot.sh —— SkySense++ flood3i 1-shot 容器内"安装+运行"脚本
-# 挂载后容器内路径：/workspace/start_1shot.sh（hostPath /root/SkySensePlusPlus）
-# 基础镜像：<Harbor 地址>:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
-#           （已推送至本环境 Harbor，docker.io 源不可直连；已预装 torch2.1.2+cu121）
+# 挂载后容器内路径：/workspace/start_1shot.sh（hostPath ~/SkySensePlusPlus）
+# 基础镜像：<镜像仓库地址>:5000/library/pytorch:2.1.2-cuda12.1-cudnn8-devel
+#           （已推送至私有镜像仓库，docker.io 源不可直连；已预装 torch2.1.2+cu121）
 # 2026-08-31 实测修正（相对手册原草案）：
 #   [1] antmmf 无 setup.py，pip install -e 必失败；run_1shot.sh 内建
 #       `cd antmmf && export PYTHONPATH=$(pwd)`，靠 PYTHONPATH 引用，不 pip 安装
 #   [2] run_1shot.sh 内部用 `python` 命令，容器若只有 python3 需补软链
-#   [3] mmcv 走 openmmlab cu121/torch2.1 预编译 wheel（gpu-0002 已实测 HTTP 200）
+#   [3] mmcv 走 openmmlab cu121/torch2.1 预编译 wheel（L20 节点 已实测 HTTP 200）
 #   [4] pip 增强：PIP_CACHE_DIR 指向 /workspace/.pip-cache（hostPath 持久化，跨 Pod
 #       复用下载缓存，mmcv 94MB 不用重下）；--timeout 60 --retries 5 防下载超时；
 #       失败自动重试 3 次
-#   [5] 2026-08-31 实测：清华 PyPI 源对 gpu-0002 卡死（20s 无响应，连续 Read timeout，
+#   [5] 2026-08-31 实测：清华 PyPI 源对 L20 节点 卡死（20s 无响应，连续 Read timeout，
 #       甚至导致 wheel 截断 hash 校验失败）；阿里云源 4.5MB/s、腾讯云 1.6MB/s。
 #       -> PIP_INDEX_URL 改用阿里云（mmcv 仍走 openmmlab --find-links，不受影响）
 # ============================================================

@@ -612,7 +612,7 @@ class Proj_MHSA(nn.Module):
         identity = x
         x = self.attn(x, x, x, need_weights=False)[0]
         # [L20 patch 2.7 fix] 补回 mmcv MultiheadAttention 包装类的 identity 残差：
-        # 训练/7-20 的 Proj_MHSA.attn 是 mmcv MultiheadAttention（包 atorch FA），
+        # 基线版本的 Proj_MHSA.attn 是 mmcv MultiheadAttention（包 atorch FA），
         # 其 forward 返回 identity + dropout(proj_drop(attn_out)) = x + attn_out；
         # L20 改用 torch 原生 MHA 后仅返回 attn_out，缺 x 残差 -> 特征漂移 ->
         # mIoU 坍缩(55%->0.9%)。此处手动补回，保持与训练一致。
