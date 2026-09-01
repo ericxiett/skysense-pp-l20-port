@@ -1,0 +1,522 @@
+diff --git a/configs/eval_skysense_pp_flood3i.yml b/configs/eval_skysense_pp_flood3i.yml
+index eaeb1bc..408aea1 100644
+--- a/configs/eval_skysense_pp_flood3i.yml
++++ b/configs/eval_skysense_pp_flood3i.yml
+@@ -166,6 +166,6 @@ amp_attributes:
+ 
+ predictor_parameters:
+   predictor: 'OneshotPredictor'
+-  replace_speedup_op: True
++  replace_speedup_op: False
+   device: cuda
+   local_rank: 0
+diff --git a/lib/datasets/loader/few_shot_flood3i_loader.py b/lib/datasets/loader/few_shot_flood3i_loader.py
+index a961c4b..d6d833c 100644
+--- a/lib/datasets/loader/few_shot_flood3i_loader.py
++++ b/lib/datasets/loader/few_shot_flood3i_loader.py
+@@ -18,7 +18,10 @@ from lib.datasets.utils.formatting import ToTensor
+ import lib.datasets.utils.pair_trainsforms as pair_transforms
+ 
+ from skimage import io
+-from osgeo import gdal
++# [L20 patch 2.6] 惰性加载 gdal：flood3i 数据为 jpg/npy，.tif 分支推理链不触发
++def _gdal():
++    import osgeo.gdal as gdal
++    return gdal
+ from PIL import Image
+ 
+ 
+@@ -42,6 +45,7 @@ class FewShotFloodLoader(BaseDataset):
+             i = i.strip()
+             if i == '':
+                 continue
++            print(f"{i = }")
+             img_path = i[:-3]
+             cls = int(i[-2:])
+             cls = int(cls)
+@@ -94,7 +98,7 @@ class FewShotFloodLoader(BaseDataset):
+             if len(data.shape) == 3:
+                 data = data.transpose(2, 0, 1)
+         elif file_extension == '.tiff' or file_extension == '.tif':
+-            dataset = gdal.Open(data_path)
++            dataset = _gdal().Open(data_path)
+             if dataset is None:
+                 raise IOError(f'can not open file: {data_path}')
+             data = dataset.ReadAsArray()
+diff --git a/lib/datasets/loader/pretraining_loader.py b/lib/datasets/loader/pretraining_loader.py
+index 7e7748c..ae4c9a5 100644
+--- a/lib/datasets/loader/pretraining_loader.py
++++ b/lib/datasets/loader/pretraining_loader.py
+@@ -5,7 +5,10 @@ import random
+ 
+ import torch
+ import numpy as np
+-from osgeo import gdal
++# [L20 patch 2.6] 惰性加载 gdal：容器无系统 libgdal，1-shot 链不实例化 PretrainingLoader
++def _gdal():
++    import osgeo.gdal as gdal
++    return gdal
+ from skimage import io
+ from skimage.transform import resize
+ 
+@@ -218,7 +221,7 @@ class PretrainingLoader(BaseDataset):
+             if len(data.shape) == 3:
+                 data = data.transpose(2,0,1)
+         elif file_extension == '.tiff' or file_extension == '.tif':
+-            dataset = gdal.Open(data_path)
++            dataset = _gdal().Open(data_path)
+             if dataset is None:
+                 raise IOError(f'无法打开文件{data_path}')
+             data = dataset.ReadAsArray()
+diff --git a/lib/datasets/utils/transforms.py b/lib/datasets/utils/transforms.py
+index 314c276..26ef37b 100644
+--- a/lib/datasets/utils/transforms.py
++++ b/lib/datasets/utils/transforms.py
+@@ -13,7 +13,11 @@ import torchvision.transforms as T
+ import torchvision.transforms.functional as F
+ import mmcv
+ import copy
+-from mmcv.utils import deprecated_api_warning
++# [L20 patch 2.4.2] mmcv 2.x 已移除 mmcv.utils.deprecated_api_warning；定义本地 no-op
++def deprecated_api_warning(*args, **kwargs):
++    def decorator(func):
++        return func
++    return decorator
+ 
+ 
+ class Compose(object):
+diff --git a/lib/evaluation/segm_eval_base.py b/lib/evaluation/segm_eval_base.py
+index 528e0c5..c835c80 100644
+--- a/lib/evaluation/segm_eval_base.py
++++ b/lib/evaluation/segm_eval_base.py
+@@ -101,13 +101,24 @@ def process_file(file_dict, pred_dir, gt_dir, args, num_class):
+     filename = file_dict['file_name']
+     file_cls = file_dict['file_cls']
+ 
+-    gt = io.imread(os.path.join(gt_dir, filename))
++    # print(f'filename = {filename} / file_cls = {file_cls}')
++    # print(f'pred_dir = {pred_dir} / gt_dir = {gt_dir}')
++
++    # val.txt lists source image names (e.g. 10169_0_0.jpg), but both the GT mask
++    # in Semantic_mask/ and the saved prediction are named after the mask
++    # (e.g. 10169_lab_0_0.png / 10169_lab_0_0-<cls>.png). Map image name -> mask name.
++    if filename.endswith('.jpg'):
++        mask_name = filename.replace('_', '_lab_', 1).replace('.jpg', '.png')
++    else:
++        mask_name = filename
++
++    gt = io.imread(os.path.join(gt_dir, mask_name))
+     gt_index = gt.copy()
+     gt_index[gt_index != file_cls] = 0
+     gt_index[gt_index == file_cls] = 1
+ 
+     try:
+-        pred = io.imread(os.path.join(pred_dir, filename.replace('.png', f'-{file_cls}.png')))
++        pred = io.imread(os.path.join(pred_dir, mask_name.replace('.png', f'-{file_cls}.png')))
+         pred = resize(pred, gt.shape[-2:], anti_aliasing=False, mode='reflect', order=0)
+         
+         if len(pred.shape) == 3:
+@@ -117,8 +128,8 @@ def process_file(file_dict, pred_dir, gt_dir, args, num_class):
+         pred_index[pred_index<=127] = 0
+         pred_index[pred_index>127] = 1
+     except:
+-        logging.info(filename.replace('.png', f'_{file_cls}.png'), 'not found!')
+-        pred_index = gt_index.copy()
++        logging.info(f"{mask_name.replace('.png', f'-{file_cls}.png')} not found! (counted as empty prediction)")
++        pred_index = np.zeros_like(gt_index)
+     
+     pred_index = pred_index.flatten()
+     gt_index = gt_index.flatten()
+diff --git a/lib/models/backbones/swin_v2.py b/lib/models/backbones/swin_v2.py
+index 25b5f16..9f0cb03 100644
+--- a/lib/models/backbones/swin_v2.py
++++ b/lib/models/backbones/swin_v2.py
+@@ -8,14 +8,14 @@ import torch.nn.functional as F
+ import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_norm_layer
+ from mmcv.cnn.bricks.transformer import FFN, PatchEmbed
+-from mmcv.cnn.utils.weight_init import trunc_normal_
+-from mmcv.runner.base_module import BaseModule, ModuleList
+-from mmcv.utils.parrots_wrapper import _BatchNorm
++from mmengine.model.weight_init import trunc_normal_
++from mmengine.model import BaseModule, ModuleList
++from torch.nn.modules.batchnorm import _BatchNorm
+ 
+ from mmcls.models.utils import (PatchMerging, ShiftWindowMSA, WindowMSAV2,
+                                 resize_pos_embed, to_2tuple)
+ from mmcls.models.backbones.base_backbone import BaseBackbone
+-from mmcv.runner import (CheckpointLoader,
++from mmengine.runner import (CheckpointLoader,
+                          load_state_dict)
+ from mmcv.cnn.bricks.transformer import MultiheadAttention
+ 
+@@ -79,10 +79,11 @@ class SwinBlockV2(BaseModule):
+             **attn_cfgs
+         }
+         # use V2 attention implementation
++        # [L20 patch 2.6] mmcls 0.x->1.x：ShiftWindowMSA 不再接受 msa_cfg 嵌套参数，
++        # 1.x 直接透传 **kwargs 给 window_msa（WindowMSAV2），故展开为顶层键
+         _attn_cfgs.update(
+             window_msa=WindowMSAV2,
+-            msa_cfg=dict(
+-                pretrained_window_size=to_2tuple(pretrained_window_size)))
++            pretrained_window_size=to_2tuple(pretrained_window_size))
+         self.attn = ShiftWindowMSA(**_attn_cfgs)
+         self.norm1 = build_norm_layer(norm_cfg, embed_dims)[1]
+ 
+@@ -191,6 +192,9 @@ class SwinBlockV2Sequence(BaseModule):
+                 'norm_cfg': dict(type='LN'),
+                 **downsample_cfg
+             }
++            # [L20 patch 2.6] mmcls 0.x->1.x：PatchMerging 参数 is_post_norm -> use_post_norm
++            if 'is_post_norm' in _downsample_cfg:
++                _downsample_cfg['use_post_norm'] = _downsample_cfg.pop('is_post_norm')
+             self.downsample = PatchMerging(**_downsample_cfg)
+         else:
+             self.out_channels = embed_dims
+@@ -587,8 +591,12 @@ class Proj_MHSA(nn.Module):
+     ):
+         super().__init__()
+         self.proj_in = nn.Linear(in_features=embed_dims, out_features=proj_dims)
+-        self.attn = MultiheadAttention(
+-            embed_dims=proj_dims,
++        # [L20 patch 2.6] mmcv MultiheadAttention 底层 nn.MultiheadAttention 默认
++        # need_weights=True，会显式构造 [B*heads, N, N] 注意力权重矩阵（N 可达 65536，
++        # 数百 GB OOM）。改用 torch 原生 MHA 并 need_weights=False：torch2.1 自动走
++        # SDPA 内存高效路径（O(N) 内存），推理不需要权重，数值等价。
++        self.attn = nn.MultiheadAttention(
++            embed_dim=proj_dims,
+             num_heads=num_heads,
+             batch_first=batch_first,
+             bias=bias
+@@ -596,7 +604,19 @@ class Proj_MHSA(nn.Module):
+         self.proj_out = nn.Linear(in_features=proj_dims, out_features=embed_dims)
+     def forward(self, x):
+         x = self.proj_in(x)
+-        x = self.attn(x, x, x)
++        # torch 2.1.2 的 nn.MultiheadAttention 无论 need_weights 值，都返回
++        # (attn_output, attn_output_weights) tuple（实测 3D/2D 输入均如此）。
++        # [0] 取 attn_output 完整 tensor（形状 [B, N, E]，不是取 batch 样本）。
++        # need_weights=False 时内部走 SDPA 内存高效路径（O(N) 内存，防 OOM），
++        # attn_output_weights 为 None。
++        identity = x
++        x = self.attn(x, x, x, need_weights=False)[0]
++        # [L20 patch 2.7 fix] 补回 mmcv MultiheadAttention 包装类的 identity 残差：
++        # 训练/7-20 的 Proj_MHSA.attn 是 mmcv MultiheadAttention（包 atorch FA），
++        # 其 forward 返回 identity + dropout(proj_drop(attn_out)) = x + attn_out；
++        # L20 改用 torch 原生 MHA 后仅返回 attn_out，缺 x 残差 -> 特征漂移 ->
++        # mIoU 坍缩(55%->0.9%)。此处手动补回，保持与训练一致。
++        x = x + identity
+         x = self.proj_out(x)
+         return x
+ 
+diff --git a/lib/models/backbones/vit.py b/lib/models/backbones/vit.py
+index 4fa5ff0..2330da4 100644
+--- a/lib/models/backbones/vit.py
++++ b/lib/models/backbones/vit.py
+@@ -7,14 +7,15 @@ import torch.nn as nn
+ import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_norm_layer
+ from mmcv.cnn.bricks.transformer import FFN, MultiheadAttention
+-from mmcv.cnn.utils.weight_init import (constant_init, kaiming_init,
++from mmengine.model.weight_init import (constant_init, kaiming_init,
+                                         trunc_normal_)
+-from mmcv.runner import (BaseModule, CheckpointLoader, ModuleList,
++from mmengine.model import (BaseModule, ModuleList)
++from mmengine.runner import (CheckpointLoader,
+                          load_state_dict)
+ from torch.nn.modules.batchnorm import _BatchNorm
+ from torch.nn.modules.utils import _pair as to_2tuple
+ 
+-from mmseg.ops import resize
++from mmseg.models.utils.wrappers import resize
+ from mmseg.utils import get_root_logger
+ from mmseg.models.utils.embed import PatchEmbed
+ import torch.nn.functional as F
+diff --git a/lib/models/heads/decode_head.py b/lib/models/heads/decode_head.py
+index 172522d..8071a5c 100644
+--- a/lib/models/heads/decode_head.py
++++ b/lib/models/heads/decode_head.py
+@@ -3,10 +3,16 @@ from abc import ABCMeta, abstractmethod
+ 
+ import torch
+ import torch.nn as nn
+-from mmcv.runner import BaseModule, auto_fp16
+-
+-from mmseg.core import build_pixel_sampler
+-from mmseg.ops import resize
++from mmengine.model import BaseModule
++# [L20 patch 2.6] mmcv 2.x 已移除 mmcv.runner.auto_fp16；定义本地 no-op 装饰器
++# （fp16_enabled 恒为 False，forward 原样返回，功能等价）
++def auto_fp16(*args, **kwargs):
++    def decorator(func):
++        return func
++    return decorator
++
++from mmseg.structures.sampler.builder import build_pixel_sampler
++from mmseg.models.utils.wrappers import resize
+ 
+ 
+ class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
+diff --git a/lib/models/heads/psp_head.py b/lib/models/heads/psp_head.py
+index d402228..4be4df1 100644
+--- a/lib/models/heads/psp_head.py
++++ b/lib/models/heads/psp_head.py
+@@ -3,7 +3,7 @@ import torch
+ import torch.nn as nn
+ from mmcv.cnn import ConvModule
+ 
+-from mmseg.ops import resize
++from mmseg.models.utils.wrappers import resize
+ from mmseg.models.decode_heads.decode_head import BaseDecodeHead
+ 
+ 
+diff --git a/lib/models/heads/up_head.py b/lib/models/heads/up_head.py
+index ee048b6..e9a6e3c 100644
+--- a/lib/models/heads/up_head.py
++++ b/lib/models/heads/up_head.py
+@@ -1,7 +1,7 @@
+ import torch.nn as nn
+ from collections import OrderedDict
+-from mmcv.cnn.utils.weight_init import (kaiming_init, trunc_normal_)
+-from mmcv.runner import (CheckpointLoader, load_state_dict)
++from mmengine.model.weight_init import (kaiming_init, trunc_normal_)
++from mmengine.runner import (CheckpointLoader, load_state_dict)
+ from mmseg.utils import get_root_logger
+ 
+ 
+diff --git a/lib/models/heads/uper_head.py b/lib/models/heads/uper_head.py
+index c8fdbaa..c6d4f9b 100644
+--- a/lib/models/heads/uper_head.py
++++ b/lib/models/heads/uper_head.py
+@@ -5,7 +5,7 @@ import torch.nn as nn
+ import torch.nn.functional as F
+ from mmcv.cnn import ConvModule
+ 
+-from mmseg.ops import resize
++from mmseg.models.utils.wrappers import resize
+ from mmseg.models.decode_heads.decode_head import BaseDecodeHead
+ from .psp_head import PPM
+ 
+diff --git a/lib/models/necks/modality_completion.py b/lib/models/necks/modality_completion.py
+index 14cbd50..5ef096a 100644
+--- a/lib/models/necks/modality_completion.py
++++ b/lib/models/necks/modality_completion.py
+@@ -110,7 +110,7 @@ class ModalityCompletion(nn.Module):
+                 and self.init_cfg['type'] == 'Pretrained'):
+             # Suppress default init if use pretrained model.
+             from mmcls.utils import get_root_logger
+-            from mmcv.runner import CheckpointLoader, load_state_dict
++            from mmengine.runner import CheckpointLoader, load_state_dict
+             logger = get_root_logger()
+             checkpoint = CheckpointLoader.load_checkpoint(
+                 self.init_cfg['checkpoint'], logger=logger, map_location='cpu')
+diff --git a/lib/models/necks/transformer_encoder.py b/lib/models/necks/transformer_encoder.py
+index fcdd699..72c2b90 100644
+--- a/lib/models/necks/transformer_encoder.py
++++ b/lib/models/necks/transformer_encoder.py
+@@ -2,9 +2,9 @@
+ from collections import OrderedDict
+ import torch
+ import torch.nn as nn
+-from mmcv.cnn.utils.weight_init import (constant_init, kaiming_init,
++from mmengine.model.weight_init import (constant_init, kaiming_init,
+                                         trunc_normal_)
+-from mmcv.runner import (CheckpointLoader, load_state_dict)
++from mmengine.runner import (CheckpointLoader, load_state_dict)
+ from torch.nn.modules.batchnorm import _BatchNorm
+ from mmseg.models.backbones.vit import TransformerEncoderLayer
+ 
+diff --git a/lib/predictors/flood3i_1shot.py b/lib/predictors/flood3i_1shot.py
+index 1a01cad..ab09406 100644
+--- a/lib/predictors/flood3i_1shot.py
++++ b/lib/predictors/flood3i_1shot.py
+@@ -3,7 +3,6 @@ import glob
+ import numpy as np
+ import yaml
+ import argparse
+-import oss2
+ import torch
+ from PIL import Image
+ from tqdm import tqdm
+@@ -44,8 +43,7 @@ class OneshotPredictor(BasePredictor, FewShotFloodLoader):
+         self.predictor_parameters = self.config.predictor_parameters
+ 
+     def _predict(self, sample_list):
+-        # with torch.no_grad():
+-        if True:
++        with torch.no_grad():
+             sample_list = sample_list.to(self.device)
+             report = self._forward_pass(sample_list)
+         return report, sample_list
+@@ -82,6 +80,11 @@ class OneshotPredictor(BasePredictor, FewShotFloodLoader):
+         if self.config.predictor_parameters.replace_speedup_op:
+             from lib.utils.optim_utils import replace_speedup_op
+             self.model = replace_speedup_op(self.model)
++            # replace_speedup_op swaps in new submodules (atorch FastLayerNorm /
++            # MultiheadAttentionFA) that are created on CPU by default, so the
++            # model is no longer fully on the inference device. Move it back,
++            # otherwise forward crashes with "gamma must be a CUDA tensor".
++            self.model = self.model.to(self.device)
+ 
+ def save_image(output_path, image_np_array):
+     image = Image.fromarray(image_np_array)
+@@ -173,11 +176,17 @@ def test(args):
+ 
+     loader = torch.utils.data.DataLoader(
+         dataset,
+-        batch_size=8,
++        # batch_size lowered 8 -> 2 to fit a 24GB GPU (RTX 4090) alongside the
++        # ~7.2GB fp32 weights. Eval results are batch-size independent.
++        batch_size=2,
+         shuffle=False,
+         sampler=SequentialSampler(dataset),
+         collate_fn=build_collate_fn(dataset),
+-        num_workers=16,
++        # num_workers=16 by default; lowered to 0 because the Docker container
++        # has a tiny /dev/shm (64MB) and multi-worker DataLoaders exhaust it
++        # ("DataLoader worker out of shared memory"). Set back to >0 only after
++        # raising shm (e.g. docker-compose shm_size: '16gb') for full speed.
++        num_workers=0,
+         pin_memory=True,
+         drop_last=False,
+     )
+diff --git a/lib/utils/checkpoint.py b/lib/utils/checkpoint.py
+index cd8849f..71c3f53 100644
+--- a/lib/utils/checkpoint.py
++++ b/lib/utils/checkpoint.py
+@@ -13,6 +13,36 @@ class SegCheckpoint(Checkpoint):
+     def __init__(self, trainer, load_only=False):
+         super().__init__(trainer, load_only=False)
+ 
++    @staticmethod
++    def _remap_proj_mhsa_keys(ckpt_model):
++        """[L20 patch 2.6 fix] Proj_MHSA key 对齐（v1 回归）。
++
++        训练时 Proj_MHSA.attn 是 mmcv MultiheadAttention 包 atorch
++        MultiheadAttentionFA，state_dict key 为:
++            backbone_hr.attn{1,2,3}.attn.attn.Wqkv.weight / .out_proj.weight
++        L20 重建无 atorch，Proj_MHSA 改用 torch 原生 nn.MultiheadAttention
++        (need_weights=False 走 SDPA 防 OOM)，key 为:
++            backbone_hr.attn{1,2,3}.attn.in_proj_weight / .attn.out_proj.weight
++        这里把 ckpt 的 Proj_MHSA 相关 key 重映射到新结构，否则 hr 的注意力
++        权重会被 _load_state_dict 静默跳过 -> 随机初始化 -> mIoU 坍缩(55%->1.3%)。
++
++        注意：s2/s1 的 vit encoder 不需要在此处理——其 attn 为
++        mmcv MultiheadAttention 包 torch nn.MultiheadAttention，结构与 ckpt
++        (mmcv MHA 包 atorch FA) 一致（均为 attn.attn 双层），由
++        load_model_weights 循环中的全局 .Wqkv.->.in_proj_ 改名对齐。
++        """
++        out = {}
++        for k, v in ckpt_model.items():
++            nk = k
++            for a in ("attn1", "attn2", "attn3"):
++                p = f"backbone_hr.{a}.attn.attn."
++                if k.startswith(p):
++                    nk = k.replace(p, f"backbone_hr.{a}.attn.")
++                    nk = nk.replace(".Wqkv.", ".in_proj_")
++                    break
++            out[nk] = v
++        return out
++
+     def load_model_weights(self, file, force=False):
+         self.trainer.writer.write("Loading checkpoint")
+         ckpt = self._torch_load(file)
+@@ -28,6 +58,9 @@ class SegCheckpoint(Checkpoint):
+             ckpt_model = ckpt
+             ckpt = {"model": ckpt}
+ 
++        # Proj_MHSA key 对齐（见 _remap_proj_mhsa_keys docstring）
++        ckpt_model = self._remap_proj_mhsa_keys(ckpt_model)
++
+         new_dict = {}
+ 
+         # TODO: Move to separate function
+@@ -132,4 +165,4 @@ class SegCheckpoint(Checkpoint):
+         self.remove_redundant_ckpts()
+ 
+         if update_best:
+-            torch.save(ckpt, best_ckpt_filepath)
+\ No newline at end of file
++            torch.save(ckpt, best_ckpt_filepath)
+diff --git a/lib/utils/optim_utils.py b/lib/utils/optim_utils.py
+index 2780d46..d1eebf0 100644
+--- a/lib/utils/optim_utils.py
++++ b/lib/utils/optim_utils.py
+@@ -2,12 +2,18 @@ import torch
+ from torch.nn import LayerNorm, Linear, GELU
+ from torch.nn import MultiheadAttention, Sequential
+ import warnings
++# [L20 patch 2.4.4] replace_speedup_op 已在 config 置 False，走原生 torch 实现，不依赖 atorch/apex。
+ try:
+     from atorch.normalization import LayerNorm as FastLayerNorm
+     from atorch.modules.transformer.inject import replace_module
+     from atorch.modules.transformer.layers import MultiheadAttentionFA, BertAttentionFA
+-except (ImportError, ModuleNotFoundError) as e:
+-    warnings.warn("Using replace_speedup_op but no atorch/apex installed:%s" % e)
++    _has_atorch_speedup = True
++except (ImportError, ModuleNotFoundError):
++    FastLayerNorm = LayerNorm  # torch.nn.LayerNorm（line 2 已导入），原生回退
++    replace_module = None
++    MultiheadAttentionFA = None
++    BertAttentionFA = None
++    _has_atorch_speedup = False
+ try:
+     from transformers.models.bert.modeling_bert import BertAttention
+     replace_transformer_bert = True
+@@ -108,9 +114,13 @@ def replace_speedup_op(model, strategy=DefaultStrategy):
+     if not is_atorch_available(raise_error=False):
+         raise ImportError("Install Atorch/apex before using speedup op")
+     if strategy.replace_mha:
+-        model = replace_module(model, MultiheadAttention, MultiheadAttentionFA, need_scr_module=True)
++        # NOTE: the correct kwarg is `need_src_module` (not `need_scr_module`).
++        # Passing src_module lets MultiheadAttentionFA read the real embed_dim
++        # and copy weights from the original nn.MultiheadAttention; otherwise it
++        # falls back to default embed_dim=768 and the Wqkv matmul shape mismatches.
++        model = replace_module(model, MultiheadAttention, MultiheadAttentionFA, need_src_module=True)
+         if replace_transformer_bert:
+-            model = replace_module(model, BertAttention, BertAttentionFA, need_scr_module=True)
++            model = replace_module(model, BertAttention, BertAttentionFA, need_src_module=True)
+     root_name = model.__class__.__name__
+     if strategy.replace_layernorm:
+         replace_layer_norm(model, root_name)  # inplace
+diff --git a/tools/run_1shot.sh b/tools/run_1shot.sh
+index 9474d46..561b65c 100644
+--- a/tools/run_1shot.sh
++++ b/tools/run_1shot.sh
+@@ -1,5 +1,5 @@
+ #!/bin/bash
+-set -x
++set -xeo pipefail
+ export PYTHONPATH=`pwd`:$PYTHONPATH
+ cd antmmf
+ export PYTHONPATH=`pwd`:$PYTHONPATH
+@@ -12,17 +12,18 @@ CONFIG_PATH=configs/eval_skysense_pp_${dataset_name}.yml
+ MODEL_PATH=pretrain/skysensepp_release.ckpt
+ 
+ SAVE_DIR=eval/${dataset_name}_1shot/save
+-GT_DIR=eval_datasets/${dataset_name}/targets
++GT_DIR=eval_datasets/${dataset_name}/Semantic_mask
+ GT_LIST_PATH=eval_datasets/${dataset_name}/val.txt
+ 
+ mkdir -p $SAVE_DIR
++mkdir -p logs/predictor
+ 
+-# predictor
++# predictor  (stdout+stderr captured so a crash is never silent)
+ python lib/predictors/${dataset_name}_1shot.py \
+     --model_path $MODEL_PATH \
+     --config $CONFIG_PATH \
+     --save_dir $SAVE_DIR \
+-    --seed 0
++    --seed 0 2>&1 | tee logs/predictor/predictor_${dataset_name}.log
+ 
+ # eval
+ python lib/evaluation/segm_eval_base.py \
+@@ -32,4 +33,4 @@ python lib/evaluation/segm_eval_base.py \
+    --gt_suffix '.png' \
+    --dataset_name ${dataset_name} \
+    --dist_type 'abs' \
+-   --model_name skysense++_1shot
+\ No newline at end of file
++   --model_name skysense++_1shot

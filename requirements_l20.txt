@@ -1,0 +1,42 @@
+# requirements_l20.txt
+# SkySense++ 在 L20 (sm_89 / Ada) 运行的 torch2 适配依赖清单（路线 A 运行时安装用）
+# 对应基础镜像：pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel
+#   容器已预装 torch==2.1.2+cu121 / torchvision==0.16.2，故下方 torch/torchvision 仅做版本对齐，
+#   不会重装 CUDA 工具链。
+# 注意：不要使用原仓库 requirements.txt（它 pin 了 torch==1.13 + cu117，无法在 L20 编译运行）。
+
+# ---- mmcv 预编译 wheel 索引（cu121 / torch2.1），避免从源码 nvcc 编译 ----
+--find-links https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html
+
+# 框架核心（容器已带，仅对齐版本）
+torch==2.1.2
+torchvision==0.16.2
+
+# mmcv / mmseg / mmengine（mmcv 2.x 已从 mmcv.utils / mmcv.cnn 迁到 mmengine，必须配套）
+mmengine>=0.8.0,<1.0.0
+mmcv==2.1.0
+mmsegmentation==1.2.2
+
+# 模型/训练相关
+einops
+timm
+opencv-python-headless
+numpy<2.0
+scipy
+scikit-image
+scikit-learn
+Pillow
+pandas
+tqdm
+tensorboard
+yacs
+addict
+future
+termcolor
+iopath
+fvcore
+
+# flash-attn 仅当 1-shot 链实测用到才装（标准 attention 可绕过，先不装，省 nvcc 编译）
+# flash-attn==2.5.8
+
+# antmmf 从本地源码装（见 start_1shot.sh 的 pip install -e ./antmmf），不要此处 pip 远程
